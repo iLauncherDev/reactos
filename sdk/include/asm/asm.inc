@@ -172,6 +172,20 @@ ENDM
     .skip size, fill
 ENDM
 
+lgdt32A MACRO address
+    DB 00Fh
+    DB 001h
+    DB 015h
+    DD address
+ENDM
+
+lidt32A MACRO address
+    DB 00Fh
+    DB 001h
+    DB 01Dh
+    DD address
+ENDM
+
 ljmp MACRO segment, offset
     DB 0EAh
     DD offset
@@ -184,8 +198,12 @@ ljmp16 MACRO segment, offset
     DW segment
 ENDM
 
+data32prefix MACRO
+    DB 066h
+ENDM
+
 data32 MACRO opcode:VARARG
-    DB 66h
+    data32prefix
     opcode
 ENDM
 
@@ -320,12 +338,34 @@ ENDM
 #define REPEAT .rept
 #define ENDR .endr
 
+.macro data32prefix
+    .byte 0x66
+.endm
+
+.macro lgdt32A address
+    .byte 0x0F
+    .byte 0x01
+    .byte 0x15
+    .long address
+.endm
+
+.macro lidt32A address
+    .byte 0x0F
+    .byte 0x01
+    .byte 0x1D
+    .long address
+.endm
+
 .macro ljmp segment, offset
-    jmp far ptr \segment:\offset
+    .byte 0xEA
+    .long offset
+    .word segment
 .endm
 
 .macro ljmp16 segment, offset
-    jmp far ptr \segment:\offset
+    .byte 0xEA
+    .word offset
+    .word segment
 .endm
 
 .macro retf
