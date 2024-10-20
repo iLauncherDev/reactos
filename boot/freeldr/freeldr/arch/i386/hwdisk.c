@@ -49,6 +49,8 @@ static CHAR PcDiskIdentifier[32][20];
 PVOID DiskReadBuffer;
 SIZE_T DiskReadBufferSize;
 
+extern BOOLEAN isBootedWithMultiboot;
+
 
 /* FUNCTIONS *****************************************************************/
 
@@ -449,17 +451,19 @@ DiskGetBootPath(BOOLEAN IsPxe)
     }
     else
     {
-        ULONG BootPartition;
-        PARTITION_TABLE_ENTRY PartitionEntry;
+        if (!isBootedWithMultiboot) {
+            ULONG BootPartition;
+            PARTITION_TABLE_ENTRY PartitionEntry;
 
-        /* This is a hard disk */
-        if (!DiskGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
-        {
-            ERR("Failed to get boot partition entry\n");
-            return FALSE;
+            /* This is a hard disk */
+            if (!DiskGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
+            {
+                ERR("Failed to get boot partition entry\n");
+                return FALSE;
+            }
+
+            FrldrBootPartition = BootPartition;
         }
-
-        FrldrBootPartition = BootPartition;
 
         RtlStringCbPrintfA(FrLdrBootPath, sizeof(FrLdrBootPath),
                            "multi(0)disk(0)rdisk(%u)partition(%lu)",

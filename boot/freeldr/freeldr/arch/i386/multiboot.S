@@ -97,6 +97,9 @@ MultibootEntry:
     cmp eax, MULTIBOOT_BOOTLOADER_MAGIC
     jne mbfail
 
+    /* Set the boolean to true to freeldr know we using multiboot */
+    mov byte ptr [isBootedWithMultiboot + INITIAL_BASE - FREELDR_BASE], 1
+
     /* Save multiboot info structure */
     mov esi, ebx
     mov edi, offset MultibootInfo + INITIAL_BASE - FREELDR_BASE
@@ -150,10 +153,6 @@ mb2:
     /* Load boot drive into DL, boot partition into DH */
     mov rdx, [rbx + MB_INFO_BOOT_DEVICE_OFFSET]
     bswap edx
-
-    cmp dh, HEX(FF)
-    jz mb3
-    inc dh
 
 mb3:
     /* Relocate itself to lower address */
@@ -218,6 +217,10 @@ _MultibootInfoPtr:
 #else
     .quad 0
 #endif
+
+PUBLIC isBootedWithMultiboot
+isBootedWithMultiboot:
+    .byte 0
 
 MultibootInfo:
     .space MB_INFO_SIZE
