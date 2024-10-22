@@ -261,6 +261,7 @@ typedef struct _ARC_DISK_SIGNATURE
     BOOLEAN IsGpt;
     BOOLEAN Reserved;
     CHAR GptSignature[16];
+    ULONG Unknown;
 } ARC_DISK_SIGNATURE, *PARC_DISK_SIGNATURE;
 
 typedef struct _ARC_DISK_INFORMATION
@@ -382,6 +383,78 @@ typedef struct _LOADER_PERFORMANCE_DATA
     ULONGLONG EndTime;
 } LOADER_PERFORMANCE_DATA, *PLOADER_PERFORMANCE_DATA;
 
+typedef enum _TPM_BOOT_ENTROPY_RESULT_CODE
+{
+    TpmBootEntropyStructureUninitialized = 0,
+    TpmBootEntropyDisabledByPolicy = 1,
+    TpmBootEntropyNoTpmFound = 2,
+    TpmBootEntropyTpmError = 3,
+    TpmBootEntropySuccess = 4
+} TPM_BOOT_ENTROPY_RESULT_CODE;
+
+typedef struct _TPM_BOOT_ENTROPY_LDR_RESULT
+{
+    ULONGLONG Policy;
+    TPM_BOOT_ENTROPY_RESULT_CODE ResultCode;
+    LONG ResultStatus;
+    ULONGLONG Time;
+    ULONG EntropyLength;
+    UCHAR EntropyData[40];
+} TPM_BOOT_ENTROPY_LDR_RESULT, *PTPM_BOOT_ENTROPY_LDR_RESULT;
+
+typedef struct _LOADER_PARAMETER_EXTENSION_WIN7
+{
+    ULONG Size;
+    PROFILE_PARAMETER_BLOCK Profile;
+    PVOID EmInfFileImage;
+    ULONG EmInfFileSize;
+    PVOID TriageDumpBlock;
+    //
+    // NT 5.1
+    //
+    ULONG_PTR LoaderPagesSpanned;   /* Not anymore present starting NT 6.2 */
+    PHEADLESS_LOADER_BLOCK HeadlessLoaderBlock;
+    PSMBIOS_TABLE_HEADER SMBiosEPSHeader;
+    PVOID DrvDBImage;
+    ULONG DrvDBSize;
+    PNETWORK_LOADER_BLOCK NetworkLoaderBlock;
+    //
+    // NT 5.2+
+    //
+#ifdef _X86_
+    PUCHAR HalpIRQLToTPR;
+    PUCHAR HalpVectorToIRQL;
+#endif
+    LIST_ENTRY FirmwareDescriptorListHead;
+    PVOID AcpiTable;
+    ULONG AcpiTableSize;
+    //
+    // NT 5.2 SP1+
+    //
+/** NT-version-dependent flags **/
+    ULONG BootViaWinload:1;
+    ULONG BootViaEFI:1;
+    ULONG Reserved:30;
+/********************************/
+    PLOADER_PERFORMANCE_DATA LoaderPerformanceData;
+    LIST_ENTRY BootApplicationPersistentData;
+    PVOID WmdTestResult;
+    GUID BootIdentifier;
+    //
+    // NT 6
+    //
+    ULONG ResumePages;
+    PVOID DumpHeader;
+    PVOID BgContext;
+    PVOID NumaLocalityInfo;
+    PVOID NumaGroupAssignment;
+    LIST_ENTRY AttachedHives;
+    ULONG MemoryCachingRequirementsCount;
+    PVOID MemoryCachingRequirements;
+    TPM_BOOT_ENTROPY_LDR_RESULT TpmBootEntropyResult;
+    ULONGLONG ProcessorCounterFrequency;
+} LOADER_PARAMETER_EXTENSION_WIN7, *PLOADER_PARAMETER_EXTENSION_WIN7;
+
 //
 // Extended Loader Parameter Block
 //
@@ -433,6 +506,8 @@ typedef struct _LOADER_PARAMETER_EXTENSION
     //
     ULONG ResumePages;
     PVOID DumpHeader;
+
+    LOADER_PARAMETER_EXTENSION_WIN7 NT6_1;
 } LOADER_PARAMETER_EXTENSION, *PLOADER_PARAMETER_EXTENSION;
 
 //
@@ -529,6 +604,42 @@ typedef struct _FIRMWARE_INFORMATION_LOADER_BLOCK
     } u;
 } FIRMWARE_INFORMATION_LOADER_BLOCK, *PFIRMWARE_INFORMATION_LOADER_BLOCK;
 
+typedef struct _LOADER_PARAMETER_BLOCK_WIN7
+{
+    ULONG OsMajorVersion;
+    ULONG OsMinorVersion;
+    ULONG Size;
+    ULONG Reserved;
+    LIST_ENTRY LoadOrderListHead;
+    LIST_ENTRY MemoryDescriptorListHead;
+    LIST_ENTRY BootDriverListHead;
+    ULONG_PTR KernelStack;
+    ULONG_PTR Prcb;
+    ULONG_PTR Process;
+    ULONG_PTR Thread;
+    ULONG RegistryLength;
+    PVOID RegistryBase;
+    PCONFIGURATION_COMPONENT_DATA ConfigurationRoot;
+    PSTR ArcBootDeviceName;
+    PSTR ArcHalDeviceName;
+    PSTR NtBootPathName;
+    PSTR NtHalPathName;
+    PSTR LoadOptions;
+    PNLS_DATA_BLOCK NlsData;
+    PARC_DISK_INFORMATION ArcDiskInformation;
+    PVOID OemFontFile;
+    PLOADER_PARAMETER_EXTENSION_WIN7 Extension;
+    union
+    {
+        I386_LOADER_BLOCK I386;
+        ALPHA_LOADER_BLOCK Alpha;
+        IA64_LOADER_BLOCK IA64;
+        PPC_LOADER_BLOCK PowerPC;
+        ARM_LOADER_BLOCK Arm;
+    } u;
+    FIRMWARE_INFORMATION_LOADER_BLOCK FirmwareInformation;
+} LOADER_PARAMETER_BLOCK_WIN7, *PLOADER_PARAMETER_BLOCK_WIN7;
+
 //
 // Loader Parameter Block
 //
@@ -566,6 +677,8 @@ typedef struct _LOADER_PARAMETER_BLOCK
         ARM_LOADER_BLOCK Arm;
     } u;
     FIRMWARE_INFORMATION_LOADER_BLOCK FirmwareInformation;
+
+    LOADER_PARAMETER_BLOCK_WIN7 NT6_1;
 } LOADER_PARAMETER_BLOCK, *PLOADER_PARAMETER_BLOCK;
 
 typedef int CONFIGTYPE;
