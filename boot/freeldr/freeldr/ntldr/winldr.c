@@ -82,6 +82,8 @@ AllocateAndInitLPB(
 {
     PLOADER_PARAMETER_BLOCK LoaderBlock;
     PLOADER_PARAMETER_EXTENSION Extension;
+    PLOADER_PARAMETER_BLOCK_WIN7 LoaderBlock_WIN7;
+    PLOADER_PARAMETER_EXTENSION_WIN7 Extension_WIN7;
 
     /* Allocate and zero-init the Loader Parameter Block */
     WinLdrSystemBlock = MmAllocateMemoryWithType(sizeof(LOADER_SYSTEM_BLOCK),
@@ -108,6 +110,16 @@ AllocateAndInitLPB(
     InitializeListHead(&LoaderBlock->LoadOrderListHead);
     InitializeListHead(&LoaderBlock->MemoryDescriptorListHead);
     InitializeListHead(&LoaderBlock->BootDriverListHead);
+
+    LoaderBlock_WIN7 = &WinLdrSystemBlock->LoaderBlock.NT6_1;
+    Extension_WIN7 = &WinLdrSystemBlock->Extension.NT6_1;
+
+    LoaderBlock_WIN7->Size = sizeof(LOADER_PARAMETER_BLOCK_WIN7);
+    LoaderBlock_WIN7->Extension = Extension_WIN7;
+
+    Extension_WIN7->TpmBootEntropyResult.ResultStatus = STATUS_NOT_IMPLEMENTED;
+    Extension_WIN7->TpmBootEntropyResult.ResultCode = TpmBootEntropyNoTpmFound;
+    Extension_WIN7->Size = sizeof(LOADER_PARAMETER_EXTENSION_WIN7);
 
     *OutLoaderBlock = LoaderBlock;
 }
@@ -264,6 +276,9 @@ WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
         List_PaToVa(&Extension->BootApplicationPersistentData);
     }
 
+    InitializeListHead(&LoaderBlock->NT6_1.Extension->AttachedHives);
+    List_PaToVa(&LoaderBlock->NT6_1.Extension->AttachedHives);
+
 #ifdef _M_IX86
     /* Set headless block pointer */
     if (WinLdrTerminalConnected)
@@ -282,8 +297,12 @@ WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
                                                     &Extension->DrvDBSize,
                                                     LoaderRegistryData));
 
+    if (LoaderBlock->NT6_1.Extension->BgContext)
+        LoaderBlock->NT6_1.Extension->BgContext = PaToVa(LoaderBlock->NT6_1.Extension->BgContext);
+
     /* Convert the extension block pointer */
     LoaderBlock->Extension = PaToVa(LoaderBlock->Extension);
+    LoaderBlock->NT6_1.Extension = PaToVa(LoaderBlock->NT6_1.Extension);
 
     TRACE("WinLdrInitializePhase1() completed\n");
 }
@@ -1016,6 +1035,10 @@ LoadAndBootWindows(
     {
         OperatingSystemVersion = _WIN32_WINNT_VISTA;
     }
+    else if (_stricmp(ArgValue, "Windows7") == 0)
+    {
+        OperatingSystemVersion = _WIN32_WINNT_WIN7;
+    }
     else
     {
         ERR("Unknown 'BootType' value '%s', aborting!\n", ArgValue);
@@ -1176,6 +1199,7 @@ LoadAndBootWindowsCommon(
     IN PCSTR BootOptions,
     IN PCSTR BootPath)
 {
+    PLOADER_PARAMETER_EXTENSION ExtensionVA = PaToVa(LoaderBlock->Extension);
     PLOADER_PARAMETER_BLOCK LoaderBlockVA;
     BOOLEAN Success;
     PLDR_DATA_TABLE_ENTRY KernelDTE;
@@ -1265,7 +1289,60 @@ LoadAndBootWindowsCommon(
     WinLdrSetProcessorContext(OperatingSystemVersion);
 
     /* Save final value of LoaderPagesSpanned */
-    LoaderBlock->Extension->LoaderPagesSpanned = LoaderPagesSpanned;
+    LoaderBlockVA->Extension->LoaderPagesSpanned = LoaderPagesSpanned;
+
+    if (OperatingSystemVersion >= _WIN32_WINNT_WIN7)
+    {
+        PLOADER_PARAMETER_BLOCK_WIN7 LoaderBlock_WIN7 = &LoaderBlockVA->NT6_1;
+        PLOADER_PARAMETER_EXTENSION_WIN7 Extension_WIN7 = LoaderBlockVA->NT6_1.Extension;
+
+        LoaderBlock_WIN7->OsMajorVersion = ExtensionVA->MajorVersion;
+        LoaderBlock_WIN7->OsMinorVersion = ExtensionVA->MinorVersion;
+        LoaderBlock_WIN7->LoadOrderListHead = LoaderBlockVA->LoadOrderListHead;
+        LoaderBlock_WIN7->MemoryDescriptorListHead = LoaderBlockVA->MemoryDescriptorListHead;
+        LoaderBlock_WIN7->BootDriverListHead = LoaderBlockVA->BootDriverListHead;
+        LoaderBlock_WIN7->KernelStack = LoaderBlockVA->KernelStack;
+        LoaderBlock_WIN7->Prcb = LoaderBlockVA->Prcb;
+        LoaderBlock_WIN7->Process = LoaderBlockVA->Process;
+        LoaderBlock_WIN7->Thread = LoaderBlockVA->Thread;
+        LoaderBlock_WIN7->RegistryLength = LoaderBlockVA->RegistryLength;
+        LoaderBlock_WIN7->RegistryBase = LoaderBlockVA->RegistryBase;
+        LoaderBlock_WIN7->ConfigurationRoot = LoaderBlockVA->ConfigurationRoot;
+        LoaderBlock_WIN7->ArcBootDeviceName = LoaderBlockVA->ArcBootDeviceName;
+        LoaderBlock_WIN7->ArcHalDeviceName = LoaderBlockVA->ArcHalDeviceName;
+        LoaderBlock_WIN7->NtBootPathName = LoaderBlockVA->NtBootPathName;
+        LoaderBlock_WIN7->NtHalPathName = LoaderBlockVA->NtHalPathName;
+        LoaderBlock_WIN7->LoadOptions = LoaderBlockVA->LoadOptions;
+        LoaderBlock_WIN7->NlsData = LoaderBlockVA->NlsData;
+        LoaderBlock_WIN7->ArcDiskInformation = LoaderBlockVA->ArcDiskInformation;
+        LoaderBlock_WIN7->OemFontFile = LoaderBlockVA->OemFontFile;
+        RtlCopyMemory(&LoaderBlock_WIN7->u, &LoaderBlockVA->u, sizeof(LoaderBlockVA->u));
+        LoaderBlock_WIN7->FirmwareInformation = LoaderBlockVA->FirmwareInformation;
+
+        Extension_WIN7->Profile = ExtensionVA->Profile;
+        Extension_WIN7->EmInfFileImage = ExtensionVA->EmInfFileImage;
+        Extension_WIN7->EmInfFileSize = ExtensionVA->EmInfFileSize;
+        Extension_WIN7->TriageDumpBlock = ExtensionVA->TriageDumpBlock;
+        Extension_WIN7->LoaderPagesSpanned = ExtensionVA->LoaderPagesSpanned;
+        Extension_WIN7->HeadlessLoaderBlock = ExtensionVA->HeadlessLoaderBlock;
+        Extension_WIN7->SMBiosEPSHeader = ExtensionVA->SMBiosEPSHeader;
+        Extension_WIN7->DrvDBImage = ExtensionVA->DrvDBImage;
+        Extension_WIN7->DrvDBSize = ExtensionVA->DrvDBSize;
+        Extension_WIN7->NetworkLoaderBlock = ExtensionVA->NetworkLoaderBlock;
+#ifdef _X86_
+        Extension_WIN7->HalpIRQLToTPR = ExtensionVA->HalpIRQLToTPR;
+        Extension_WIN7->HalpVectorToIRQL = ExtensionVA->HalpVectorToIRQL;
+#endif
+        Extension_WIN7->FirmwareDescriptorListHead = ExtensionVA->FirmwareDescriptorListHead;
+        Extension_WIN7->AcpiTable = ExtensionVA->AcpiTable;
+        Extension_WIN7->AcpiTableSize = ExtensionVA->AcpiTableSize;
+        Extension_WIN7->LoaderPerformanceData = ExtensionVA->LoaderPerformanceData;
+        Extension_WIN7->BootApplicationPersistentData = ExtensionVA->BootApplicationPersistentData;
+        Extension_WIN7->WmdTestResult = ExtensionVA->WmdTestResult;
+        Extension_WIN7->BootIdentifier = ExtensionVA->BootIdentifier;
+        Extension_WIN7->ResumePages = ExtensionVA->ResumePages;
+        Extension_WIN7->DumpHeader = ExtensionVA->DumpHeader;
+    }
 
     TRACE("Hello from paged mode, KiSystemStartup %p, LoaderBlockVA %p!\n",
           KiSystemStartup, LoaderBlockVA);
@@ -1278,6 +1355,11 @@ LoadAndBootWindowsCommon(
 #ifndef _M_AMD64
     WinLdrpDumpArcDisks(LoaderBlockVA);
 #endif
+
+    if (OperatingSystemVersion >= _WIN32_WINNT_WIN7)
+        LoaderBlockVA = (PLOADER_PARAMETER_BLOCK)&LoaderBlockVA->NT6_1;
+
+    TRACE("Bye Freeldr!\n");
 
     /* Pass control */
     (*KiSystemStartup)(LoaderBlockVA);

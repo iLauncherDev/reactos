@@ -760,6 +760,8 @@ WinLdrAddDriverToList(
         RtlInitEmptyUnicodeString(&GroupString, NULL, 0);
     }
 
+    DriverEntry->Status = STATUS_SUCCESS;
+
     /* Set or replace the driver node's file path */
     if (DriverEntry->FilePath.Buffer)
     {
