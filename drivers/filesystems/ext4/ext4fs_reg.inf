@@ -1,0 +1,12 @@
+; ext2/3/4 Filesystem driver
+[AddReg]
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs","ErrorControl",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs","Group",0x00000000,"Boot File System"
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs","ImagePath",0x00020000,"system32\drivers\ext4fs.sys"
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs","Start",0x00010001,0x00000003
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs","Type",0x00010001,0x00000002
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs\Parameters","CodePage",0x00000000,"default"
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs\Parameters","WritingSupport",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs\Parameters","CheckingBitmap",0x00010001,0x00000000
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs\Parameters","Ext3ForceWriting",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\Ext4fs\Parameters","AutoMount",0x00010001,0x00000001
