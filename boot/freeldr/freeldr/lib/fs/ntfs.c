@@ -526,18 +526,9 @@ static BOOLEAN NtfsCompareFileName(PCHAR FileName, PNTFS_INDEX_ENTRY IndexEntry)
         return FALSE;
 
     /* Do case-sensitive compares for Posix file names. */
-    if (IndexEntry->FileName.FileNameType == NTFS_FILE_NAME_POSIX)
-    {
-        for (i = 0; i < EntryFileNameLength; i++)
-            if (EntryFileName[i] != FileName[i])
-                return FALSE;
-    }
-    else
-    {
-        for (i = 0; i < EntryFileNameLength; i++)
-            if (tolower(EntryFileName[i]) != tolower(FileName[i]))
-                return FALSE;
-    }
+    for (i = 0; i < EntryFileNameLength; i++)
+        if (tolower(EntryFileName[i]) != tolower(FileName[i]))
+            return FALSE;
 
     return TRUE;
 }
