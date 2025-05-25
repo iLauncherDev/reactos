@@ -1688,7 +1688,7 @@ LoadBootDeviceDriver(VOID)
     }
 
     /* Fix imports */
-    Success = PeLdrScanImportDescriptorTable(&ModuleListHead, "", BootDdDTE);
+    Success = PeLdrScanImportDescriptorTable(&ModuleListHead, "", "", BootDdDTE);
     if (!Success)
     {
         /* Cleanup and bail out */
