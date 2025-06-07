@@ -155,6 +155,7 @@ add_library(freeldr_common
     ${PCATLDR_ARC_SOURCE}
     ${FREELDR_BOOTLIB_SOURCE}
     ${PCATLDR_BOOTMGR_SOURCE}
+    ${FREELDR_NTLDR_SOURCE}
 )
 
 if(MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
@@ -170,6 +171,7 @@ set(PCH_SOURCE
     ${PCATLDR_ARC_SOURCE}
     ${FREELDR_BOOTLIB_SOURCE}
     ${PCATLDR_BOOTMGR_SOURCE}
+    ${FREELDR_NTLDR_SOURCE}
 )
 
 add_pch(freeldr_common include/freeldr.h PCH_SOURCE)
@@ -221,7 +223,7 @@ if(ARCH STREQUAL "i386")
     target_link_libraries(freeldr_pe mini_hal)
 endif()
 
-target_link_libraries(freeldr_pe freeldr_common cportlib libcntpr blrtl)
+target_link_libraries(freeldr_pe freeldr_common cportlib blcmlib blrtl libcntpr)
 
 # dynamic analysis switches
 if(STACK_PROTECTOR)
