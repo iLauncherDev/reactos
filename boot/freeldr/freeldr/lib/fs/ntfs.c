@@ -429,7 +429,9 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelperList(
                 AttrRecord = (PNTFS_ATTR_RECORD)((PCHAR)MftRecord + MftRecord->AttributesOffset);
                 AttrRecordEnd = (PNTFS_ATTR_RECORD)((PCHAR)MftRecord + Volume->MftRecordSize);
 
-                Context = NtfsFindAttributeHelper(Volume, AttrRecord, AttrRecordEnd, Type, Name, NameLength, NTFS_MAX_ATTRIBUTE_LIST_RECURSION);
+                Context = NtfsFindAttributeHelper(Volume, AttrRecord, AttrRecordEnd,
+                                                  Type, Name, NameLength,
+                                                  NTFS_MAX_ATTRIBUTE_LIST_RECURSION);
                 if (Context)
                 {
                     FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
@@ -494,7 +496,8 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
             if (NtfsReadAttribute(Volume, ListContext, 0, ListBuffer, (ULONG)ListSize) == ListSize)
             {
                 Context = NtfsFindAttributeHelperList(Volume, ListAttrRecord, ListAttrRecordEnd,
-                                                      Type, Name, NameLength, Recursion + 1);
+                                                      Type, Name, NameLength,
+                                                      Recursion + 1);
 
                 NtfsReleaseAttributeContext(ListContext);
                 FrLdrTempFree(ListBuffer, TAG_NTFS_LIST);
@@ -686,7 +689,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
                 FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
                 return TRUE;
             }
-        IndexEntry = (PNTFS_INDEX_ENTRY)((PCHAR)IndexEntry + IndexEntry->Length);
+            IndexEntry = (PNTFS_INDEX_ENTRY)((PCHAR)IndexEntry + IndexEntry->Length);
         }
 
         if (IndexRoot->IndexHeader.Flags & NTFS_LARGE_INDEX)
@@ -757,7 +760,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
 
                 /* FIXME */
                 IndexEntry = (PNTFS_INDEX_ENTRY)(IndexRecord + 0x18 + *(USHORT *)(IndexRecord + 0x18));
-            IndexEntryEnd = (PNTFS_INDEX_ENTRY)(IndexRecord + IndexBlockSize);
+                IndexEntryEnd = (PNTFS_INDEX_ENTRY)(IndexRecord + IndexBlockSize);
 
                 while (IndexEntry < IndexEntryEnd &&
                        !(IndexEntry->Flags & NTFS_INDEX_ENTRY_END))
