@@ -38,6 +38,7 @@ DBG_DEFAULT_CHANNEL(FILESYSTEM);
 #define TAG_NTFS_FILE 'FftN'
 #define TAG_NTFS_VOLUME 'VftN'
 #define TAG_NTFS_DATA 'DftN'
+#define TAG_NTFS_RUN_LIST 'RftN'
 
 #define NTFS_MAX_ATTRIBUTE_LIST_RECURSION 8
 
@@ -64,76 +65,163 @@ static ULONGLONG NtfsGetAttributeSize(PNTFS_ATTR_RECORD AttrRecord)
         return AttrRecord->Resident.ValueLength;
 }
 
-static PUCHAR NtfsDecodeRun(PUCHAR DataRun, LONGLONG *DataRunOffset, ULONGLONG *DataRunLength)
+static ULONGLONG NtfsGetAttributeContextSize(PNTFS_ATTR_CONTEXT AttrContext)
 {
-    UCHAR DataRunOffsetSize;
-    UCHAR DataRunLengthSize;
-    CHAR i;
-
-    DataRunOffsetSize = (*DataRun >> 4) & 0xF;
-    DataRunLengthSize = *DataRun & 0xF;
-    *DataRunOffset = 0;
-    *DataRunLength = 0;
-    DataRun++;
-    for (i = 0; i < DataRunLengthSize; i++)
-    {
-        *DataRunLength += ((ULONG64)*DataRun) << (i * 8);
-        DataRun++;
-    }
-
-    /* NTFS 3+ sparse files */
-    if (DataRunOffsetSize == 0)
-    {
-        *DataRunOffset = -1;
-    }
-    else
-    {
-        for (i = 0; i < DataRunOffsetSize - 1; i++)
-        {
-            *DataRunOffset += ((ULONG64)*DataRun) << (i * 8);
-            DataRun++;
-        }
-        /* The last byte contains sign so we must process it different way. */
-        *DataRunOffset = ((LONG64)(CHAR)(*(DataRun++)) << (i * 8)) + *DataRunOffset;
-    }
-
-    TRACE("DataRunOffsetSize: %x\n", DataRunOffsetSize);
-    TRACE("DataRunLengthSize: %x\n", DataRunLengthSize);
-    TRACE("DataRunOffset: %x\n", *DataRunOffset);
-    TRACE("DataRunLength: %x\n", *DataRunLength);
-
-    return DataRun;
+    ULONGLONG Size1 = NtfsGetAttributeSize(&AttrContext->Record);
+    ULONGLONG Size2 = AttrContext->CacheRunListFileSize;
+    return (Size1 == 0 || Size1 > Size2) ? Size2 : Size1;
 }
 
-static PNTFS_ATTR_CONTEXT NtfsPrepareAttributeContext(PNTFS_ATTR_RECORD AttrRecord)
+static VOID NtfsDestroyRunList(PNTFS_RUN_LIST RunList)
+{
+    PNTFS_RUN_LIST CurrentRun = RunList;
+
+    TRACE("NtfsDestroyRunList\n");
+
+    while (CurrentRun)
+    {
+        PNTFS_RUN_LIST NextRun = CurrentRun->Next;
+
+        FrLdrTempFree(CurrentRun, TAG_NTFS_RUN_LIST);
+
+        CurrentRun = NextRun;
+    }
+}
+
+static PNTFS_RUN_LIST NtfsDecodeRunList(PNTFS_VOLUME_INFO Volume, PNTFS_ATTR_RECORD AttrRecord)
+{
+    PUCHAR DataRun = (PUCHAR)AttrRecord + AttrRecord->NonResident.MappingPairsOffset;
+    PUCHAR EndDataRun = (PUCHAR)AttrRecord + AttrRecord->Length;
+    LONGLONG LastLCN = 0;
+    ULONGLONG i;
+    ULONG Offset = 0;
+    ULONG OldOffset = 0;
+
+    TRACE("NtfsDecodeRunList\n");
+
+    PNTFS_RUN_LIST FirstRun = NULL, PrevRun = NULL, CurrentRun = NULL;
+
+    while (DataRun < EndDataRun && *DataRun)
+    {
+        UCHAR Header = *DataRun++;
+        UCHAR OffsetSize = (Header >> 4) & 0xF;
+        UCHAR LengthSize = Header & 0xF;
+        ULONGLONG LengthValue = 0;
+        LONGLONG OffsetValue = 0, LCN = 0;
+
+        if (!FirstRun)
+        {
+            FirstRun = FrLdrTempAlloc(sizeof(*FirstRun), TAG_NTFS_RUN_LIST);
+            if (!FirstRun)
+            {
+                ERR("Cannot allocate the FirstRun for the RunList\n");
+                return NULL;
+            }
+
+            RtlZeroMemory(FirstRun, sizeof(*FirstRun));
+            PrevRun = CurrentRun = FirstRun;
+        }
+        else
+        {
+            PrevRun = CurrentRun;
+
+            CurrentRun = FrLdrTempAlloc(sizeof(*CurrentRun), TAG_NTFS_RUN_LIST);
+            if (!CurrentRun)
+            {
+                ERR("Cannot allocate the CurrentEntry for the RunList\n");
+                NtfsDestroyRunList(FirstRun);
+                return NULL;
+            }
+            RtlZeroMemory(CurrentRun, sizeof(*CurrentRun));
+
+            PrevRun->Next = CurrentRun;
+            CurrentRun->Prev = PrevRun;
+        }
+
+        OldOffset = Offset;
+        Offset++;
+
+        for (i = 0; i < LengthSize; i++)
+            LengthValue |= (ULONGLONG)(DataRun[i]) << (i * 8);
+
+        DataRun += LengthSize;
+        Offset += LengthSize;
+
+        if (!OffsetSize)
+        {
+            LCN = -1;
+        }
+        else
+        {
+            for (i = 0; i < OffsetSize; i++)
+                OffsetValue |= (LONGLONG)(DataRun[i]) << (i * 8);
+
+            if (DataRun[OffsetSize - 1] & 0x80)
+                for (i = OffsetSize; i < sizeof(OffsetValue); i++)
+                    OffsetValue |= (LONGLONG)0xFF << (i * 8);
+
+            DataRun += OffsetSize;
+            Offset += OffsetSize;
+
+            LastLCN += OffsetValue;
+            LCN = LastLCN;
+        }
+
+        CurrentRun->LCNInBytes = CurrentRun->LCN = LCN;
+        CurrentRun->LengthInBytes = CurrentRun->Length = LengthValue;
+
+        if (CurrentRun->LCNInBytes != -1)
+            CurrentRun->LCNInBytes *= Volume->ClusterSize;
+        CurrentRun->LengthInBytes *= Volume->ClusterSize;
+
+        CurrentRun->OffsetInDataRun = Offset;
+        CurrentRun->SizeInDataRun = Offset - OldOffset;
+
+        TRACE("OffsetSize = %u\n", OffsetSize);
+        TRACE("LengthSize = %u\n", LengthSize);
+        TRACE("OffsetValue = %u\n", OffsetValue);
+        TRACE("LengthValue = %u\n", LengthValue);
+    }
+
+    return FirstRun;
+}
+
+static ULONGLONG NtfsGetAttributeSizeWithDataRuns(PNTFS_ATTR_CONTEXT AttrContext)
+{
+    ULONGLONG Size = 0;
+    PNTFS_RUN_LIST CurrentRun = AttrContext->CacheRunList;
+    if (!CurrentRun)
+        return 0;
+
+    while (CurrentRun)
+    {
+        Size += CurrentRun->LengthInBytes;
+        CurrentRun = CurrentRun->Next;
+    }
+
+    return Size;
+}
+
+static PNTFS_ATTR_CONTEXT NtfsPrepareAttributeContext(PNTFS_VOLUME_INFO Volume, PNTFS_ATTR_RECORD AttrRecord)
 {
     PNTFS_ATTR_CONTEXT Context;
 
     Context = FrLdrTempAlloc(FIELD_OFFSET(NTFS_ATTR_CONTEXT, Record) + AttrRecord->Length,
                              TAG_NTFS_CONTEXT);
+    RtlZeroMemory(Context, FIELD_OFFSET(NTFS_ATTR_CONTEXT, Record));
     RtlCopyMemory(&Context->Record, AttrRecord, AttrRecord->Length);
-    if (AttrRecord->IsNonResident)
-    {
-        LONGLONG DataRunOffset;
-        ULONGLONG DataRunLength;
 
-        Context->CacheRun = (PUCHAR)&Context->Record + Context->Record.NonResident.MappingPairsOffset;
-        Context->CacheRunOffset = 0;
-        Context->CacheRun = NtfsDecodeRun(Context->CacheRun, &DataRunOffset, &DataRunLength);
-        Context->CacheRunLength = DataRunLength;
-        if (DataRunOffset != -1)
+    if (Context->Record.IsNonResident)
+    {
+        Context->CacheRunList = NtfsDecodeRunList(Volume, &Context->Record);
+        if (!Context->CacheRunList)
         {
-            /* Normal run. */
-            Context->CacheRunStartLCN =
-            Context->CacheRunLastLCN = DataRunOffset;
+            FrLdrTempFree(Context, TAG_NTFS_CONTEXT);
+            ERR("Cannot decode RunList for attribute context\n");
+            return NULL;
         }
-        else
-        {
-            /* Sparse run. */
-            Context->CacheRunStartLCN = -1;
-            Context->CacheRunLastLCN = 0;
-        }
-        Context->CacheRunCurrentOffset = 0;
+
+        Context->CacheRunListFileSize = NtfsGetAttributeSizeWithDataRuns(Context);
     }
 
     return Context;
@@ -141,6 +229,7 @@ static PNTFS_ATTR_CONTEXT NtfsPrepareAttributeContext(PNTFS_ATTR_RECORD AttrReco
 
 static VOID NtfsReleaseAttributeContext(PNTFS_ATTR_CONTEXT Context)
 {
+    NtfsDestroyRunList(Context->CacheRunList);
     FrLdrTempFree(Context, TAG_NTFS_CONTEXT);
 }
 
@@ -223,14 +312,16 @@ static BOOLEAN NtfsDiskRead(PNTFS_VOLUME_INFO Volume, ULONGLONG Offset, ULONGLON
 
 static ULONG NtfsReadAttribute(PNTFS_VOLUME_INFO Volume, PNTFS_ATTR_CONTEXT Context, ULONGLONG Offset, PCHAR Buffer, ULONG Length)
 {
-    ULONGLONG LastLCN;
-    PUCHAR DataRun;
-    LONGLONG DataRunOffset;
-    ULONGLONG DataRunLength;
-    LONGLONG DataRunStartLCN;
-    ULONGLONG CurrentOffset;
-    ULONG ReadLength;
-    ULONG AlreadyRead;
+    //ULONGLONG LastLCN;
+    PNTFS_RUN_LIST RunList, CurrentRun;
+    //PUCHAR DataRun;
+    //ULONGLONG CurrentOffset;
+    //ULONG ReadLength;
+    ULONGLONG BytesInRun;
+    ULONGLONG BytesToRead;
+    ULONG BytesRead;
+
+    TRACE("NtfsReadAttribute - Offset: %llu Buffer: %p Length: %u\n", Offset, Buffer, Length);
 
     if (!Context->Record.IsNonResident)
     {
@@ -250,127 +341,63 @@ static ULONG NtfsReadAttribute(PNTFS_VOLUME_INFO Volume, PNTFS_ATTR_CONTEXT Cont
      * I. Find the corresponding start data run.
      */
 
-    AlreadyRead = 0;
+    BytesToRead = min(NtfsGetAttributeContextSize(Context) - Offset, Length);
+    BytesRead = 0;
 
-    // FIXME: Cache seems to be non-working. Disable it for now
-    //if(Context->CacheRunOffset <= Offset && Offset < Context->CacheRunOffset + Context->CacheRunLength * Volume->ClusterSize)
-    if (0)
-    {
-        DataRun = Context->CacheRun;
-        LastLCN = Context->CacheRunLastLCN;
-        DataRunStartLCN = Context->CacheRunStartLCN;
-        DataRunLength = Context->CacheRunLength;
-        CurrentOffset = Context->CacheRunCurrentOffset;
-    }
-    else
-    {
-        LastLCN = 0;
-        DataRun = (PUCHAR)&Context->Record + Context->Record.NonResident.MappingPairsOffset;
-        CurrentOffset = 0;
+    TRACE("BytesToRead = %llu\n", BytesToRead);
 
-        while (1)
+    RunList = Context->CacheRunList;
+    CurrentRun = RunList;
+
+    while (CurrentRun)
+    {
+        BytesInRun = CurrentRun->LengthInBytes;
+
+        if (Offset >= BytesInRun)
         {
-            DataRun = NtfsDecodeRun(DataRun, &DataRunOffset, &DataRunLength);
-            if (DataRunOffset != -1)
-            {
-                /* Normal data run. */
-                DataRunStartLCN = LastLCN + DataRunOffset;
-                LastLCN = DataRunStartLCN;
-            }
-            else
-            {
-                /* Sparse data run. */
-                DataRunStartLCN = -1;
-            }
-
-            if (Offset >= CurrentOffset &&
-                Offset < CurrentOffset + (DataRunLength * Volume->ClusterSize))
-            {
-                break;
-            }
-
-            if (*DataRun == 0)
-            {
-                return AlreadyRead;
-            }
-
-            CurrentOffset += DataRunLength * Volume->ClusterSize;
+            Offset -= BytesInRun;
         }
-    }
-
-    /*
-     * II. Go through the run list and read the data
-     */
-
-    ReadLength = (ULONG)min(DataRunLength * Volume->ClusterSize - (Offset - CurrentOffset), Length);
-    if (DataRunStartLCN == -1)
-        RtlZeroMemory(Buffer, ReadLength);
-    if (DataRunStartLCN == -1 || NtfsDiskRead(Volume, DataRunStartLCN * Volume->ClusterSize + Offset - CurrentOffset, ReadLength, Buffer))
-    {
-        Length -= ReadLength;
-        Buffer += ReadLength;
-        AlreadyRead += ReadLength;
-
-        if (ReadLength == DataRunLength * Volume->ClusterSize - (Offset - CurrentOffset))
+        else
         {
-            CurrentOffset += DataRunLength * Volume->ClusterSize;
-            DataRun = NtfsDecodeRun(DataRun, &DataRunOffset, &DataRunLength);
-            if (DataRunOffset != (ULONGLONG)-1)
+            ULONG SliceLength = (ULONG)min(BytesToRead, (BytesInRun - Offset));
+            TRACE("SliceLength = %u\n", SliceLength);
+
+            if (CurrentRun->LCNInBytes != -1)
             {
-                DataRunStartLCN = LastLCN + DataRunOffset;
-                LastLCN = DataRunStartLCN;
+                if (!NtfsDiskRead(Volume,
+                                  CurrentRun->LCNInBytes + Offset,
+                                  SliceLength,
+                                  Buffer))
+                {
+                    ERR("Cannot read slice to the buffer\n");
+                    return BytesRead;
+                }
             }
             else
-                DataRunStartLCN = -1;
+            {
+                RtlZeroMemory(Buffer, SliceLength);
+            }
+
+            BytesRead += SliceLength;
+            Buffer += SliceLength;
+
+            if ((ULONGLONG)BytesRead == BytesToRead)
+                break;
+
+            if (Offset)
+                Offset = 0;
         }
 
-        while (Length > 0)
-        {
-            ReadLength = (ULONG)min(DataRunLength * Volume->ClusterSize, Length);
-            if (DataRunStartLCN == -1)
-                RtlZeroMemory(Buffer, ReadLength);
-            else if (!NtfsDiskRead(Volume, DataRunStartLCN * Volume->ClusterSize, ReadLength, Buffer))
-                break;
+        CurrentRun = CurrentRun->Next;
+    }
 
-            Length -= ReadLength;
-            Buffer += ReadLength;
-            AlreadyRead += ReadLength;
+    if (!CurrentRun)
+    {
+        TRACE("Offset not found\n");
+        return BytesRead;
+    }
 
-            /* We finished this request, but there still data in this data run. */
-            if (Length == 0 && ReadLength != DataRunLength * Volume->ClusterSize)
-                break;
-
-            /*
-             * Go to next run in the list.
-             */
-
-            if (*DataRun == 0)
-                break;
-            CurrentOffset += DataRunLength * Volume->ClusterSize;
-            DataRun = NtfsDecodeRun(DataRun, &DataRunOffset, &DataRunLength);
-            if (DataRunOffset != -1)
-            {
-                /* Normal data run. */
-                DataRunStartLCN = LastLCN + DataRunOffset;
-                LastLCN = DataRunStartLCN;
-            }
-            else
-            {
-                /* Sparse data run. */
-                DataRunStartLCN = -1;
-            }
-        } /* while */
-
-    } /* if Disk */
-
-    Context->CacheRun = DataRun;
-    Context->CacheRunOffset = Offset + AlreadyRead;
-    Context->CacheRunStartLCN = DataRunStartLCN;
-    Context->CacheRunLength = DataRunLength;
-    Context->CacheRunLastLCN = LastLCN;
-    Context->CacheRunCurrentOffset = CurrentOffset;
-
-    return AlreadyRead;
+    return BytesRead;
 }
 
 static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
@@ -380,7 +407,8 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
     ULONG Type,
     const WCHAR *Name,
     ULONG NameLength,
-    ULONG Recursion);
+    ULONG Recursion,
+    ULONG Index);
 static BOOLEAN NtfsReadMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, PNTFS_MFT_RECORD Buffer);
 
 static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelperList(
@@ -390,7 +418,8 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelperList(
     ULONG Type,
     const WCHAR *Name,
     ULONG NameLength,
-    ULONG Recursion)
+    ULONG Recursion,
+    ULONG Index)
 {
     ULONGLONG PrevMftIndex = -1;
     PNTFS_MFT_RECORD MftRecord = FrLdrTempAlloc(Volume->MftRecordSize, TAG_NTFS_MFT);
@@ -415,6 +444,12 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelperList(
             AttrListName = (PWCHAR)((PCHAR)AttrListRecord + AttrListRecord->NameOffset);
             if (RtlEqualMemory(AttrListName, Name, NameLength << 1))
             {
+                if (Index > 0)
+                {
+                    Index--;
+                    goto skip;
+                }
+
                 PNTFS_ATTR_CONTEXT Context;
                 PNTFS_ATTR_RECORD AttrRecord;
                 PNTFS_ATTR_RECORD AttrRecordEnd;
@@ -431,7 +466,7 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelperList(
 
                 Context = NtfsFindAttributeHelper(Volume, AttrRecord, AttrRecordEnd,
                                                   Type, Name, NameLength,
-                                                  NTFS_MAX_ATTRIBUTE_LIST_RECURSION);
+                                                  NTFS_MAX_ATTRIBUTE_LIST_RECURSION, 0);
                 if (Context)
                 {
                     FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
@@ -457,8 +492,45 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
     ULONG Type,
     const WCHAR *Name,
     ULONG NameLength,
-    ULONG Recursion)
+    ULONG Recursion,
+    ULONG Index)
 {
+    PNTFS_ATTR_RECORD OldAttrRecord = AttrRecord;
+
+    while (AttrRecord < AttrRecordEnd)
+    {
+        if (AttrRecord->Type == NTFS_ATTR_TYPE_END)
+            break;
+
+        TRACE("Recursion = %u, AttrRecord->Type = 0x%x\n", Recursion, AttrRecord->Type);
+
+        if (AttrRecord->Type == Type &&
+            AttrRecord->NameLength == NameLength)
+        {
+            PWCHAR AttrName;
+
+            AttrName = (PWCHAR)((PCHAR)AttrRecord + AttrRecord->NameOffset);
+            if (RtlEqualMemory(AttrName, Name, NameLength << 1))
+            {
+                if (Index > 0)
+                {
+                    Index--;
+                    goto skip;
+                }
+
+                /* Found it, fill up the context and return. */
+                return NtfsPrepareAttributeContext(Volume, AttrRecord);
+            }
+        }
+
+skip:
+        if (AttrRecord->Length == 0)
+            break;
+        AttrRecord = (PNTFS_ATTR_RECORD)((PCHAR)AttrRecord + AttrRecord->Length);
+    }
+
+    AttrRecord = OldAttrRecord;
+
     while (AttrRecord < AttrRecordEnd)
     {
         if (AttrRecord->Type == NTFS_ATTR_TYPE_END)
@@ -476,7 +548,7 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
             PNTFS_ATTR_LIST_ATTR ListAttrRecord;
             PNTFS_ATTR_LIST_ATTR ListAttrRecordEnd;
 
-            ListContext = NtfsPrepareAttributeContext(AttrRecord);
+            ListContext = NtfsPrepareAttributeContext(Volume, AttrRecord);
 
             ListSize = NtfsGetAttributeSize(&ListContext->Record);
             if(ListSize <= 0xFFFFFFFF)
@@ -497,27 +569,13 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
             {
                 Context = NtfsFindAttributeHelperList(Volume, ListAttrRecord, ListAttrRecordEnd,
                                                       Type, Name, NameLength,
-                                                      Recursion + 1);
+                                                      Recursion + 1, Index);
 
                 NtfsReleaseAttributeContext(ListContext);
                 FrLdrTempFree(ListBuffer, TAG_NTFS_LIST);
 
                 if (Context != NULL)
                     return Context;
-            }
-        }
-
-        if (AttrRecord->Type == Type &&
-            AttrRecord->NameLength == NameLength &&
-            NtfsGetAttributeSize(AttrRecord) != 0)
-        {
-            PWCHAR AttrName;
-
-            AttrName = (PWCHAR)((PCHAR)AttrRecord + AttrRecord->NameOffset);
-            if (RtlEqualMemory(AttrName, Name, NameLength << 1))
-            {
-                /* Found it, fill up the context and return. */
-                return NtfsPrepareAttributeContext(AttrRecord);
             }
         }
 
@@ -529,7 +587,7 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttributeHelper(
     return NULL;
 }
 
-static PNTFS_ATTR_CONTEXT NtfsFindAttribute(PNTFS_VOLUME_INFO Volume, PNTFS_MFT_RECORD MftRecord, ULONG Type, const WCHAR *Name)
+static PNTFS_ATTR_CONTEXT NtfsFindAttribute(PNTFS_VOLUME_INFO Volume, PNTFS_MFT_RECORD MftRecord, ULONG Type, const WCHAR *Name, ULONG Index)
 {
     PNTFS_ATTR_RECORD AttrRecord;
     PNTFS_ATTR_RECORD AttrRecordEnd;
@@ -540,7 +598,7 @@ static PNTFS_ATTR_CONTEXT NtfsFindAttribute(PNTFS_VOLUME_INFO Volume, PNTFS_MFT_
     for (NameLength = 0; Name[NameLength] != 0; NameLength++)
         ;
 
-    return NtfsFindAttributeHelper(Volume, AttrRecord, AttrRecordEnd, Type, Name, NameLength, 0);
+    return NtfsFindAttributeHelper(Volume, AttrRecord, AttrRecordEnd, Type, Name, NameLength, 0, Index);
 }
 
 static BOOLEAN NtfsFixupRecord(PNTFS_VOLUME_INFO Volume, PNTFS_RECORD Record)
@@ -640,6 +698,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
     PNTFS_INDEX_ROOT IndexRoot;
     ULONGLONG BitmapDataSize;
     ULONGLONG IndexAllocationSize;
+    ULONG IndexAllocationNum = 0;
     PCHAR BitmapData;
     PCHAR IndexRecord;
     PNTFS_INDEX_ENTRY IndexEntry, IndexEntryEnd;
@@ -656,7 +715,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
     {
         //Magic = MftRecord->Magic;
 
-        IndexRootCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_INDEX_ROOT, L"$I30");
+        IndexRootCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_INDEX_ROOT, L"$I30", 0);
         if (IndexRootCtx == NULL)
         {
             FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
@@ -698,7 +757,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
 
             IndexBlockSize = IndexRoot->IndexBlockSize;
 
-            IndexBitmapCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_BITMAP, L"$I30");
+            IndexBitmapCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_BITMAP, L"$I30", 0);
             if (IndexBitmapCtx == NULL)
             {
                 TRACE("Corrupted filesystem!\n");
@@ -721,67 +780,70 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
             NtfsReadAttribute(Volume, IndexBitmapCtx, 0, BitmapData, (ULONG)BitmapDataSize);
             NtfsReleaseAttributeContext(IndexBitmapCtx);
 
-            IndexAllocationCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_INDEX_ALLOCATION, L"$I30");
-            if (IndexAllocationCtx == NULL)
+            while (TRUE)
             {
-                TRACE("Corrupted filesystem!\n");
-                FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
-                FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
-                FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
-                return FALSE;
-            }
-            IndexAllocationSize = NtfsGetAttributeSize(&IndexAllocationCtx->Record);
-
-            RecordOffset = 0;
-
-            for (;;)
-            {
-                TRACE("RecordOffset: %x IndexAllocationSize: %x\n", RecordOffset, IndexAllocationSize);
-                for (; RecordOffset < IndexAllocationSize;)
+                IndexAllocationCtx = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_INDEX_ALLOCATION, L"$I30", IndexAllocationNum++);
+                if (IndexAllocationCtx == NULL)
                 {
-                    UCHAR Bit = 1 << ((RecordOffset / IndexBlockSize) & 7);
-                    ULONG Byte = (RecordOffset / IndexBlockSize) >> 3;
-                    if ((BitmapData[Byte] & Bit))
+                    TRACE("Corrupted filesystem!\n");
+                    FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
+                    FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
+                    FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
+                    return FALSE;
+                }
+                IndexAllocationSize = NtfsGetAttributeContextSize(IndexAllocationCtx);
+
+                RecordOffset = 0;
+
+                for (;;)
+                {
+                    TRACE("RecordOffset: %x IndexAllocationSize: %x\n", RecordOffset, IndexAllocationSize);
+                    for (; RecordOffset < IndexAllocationSize;)
+                    {
+                        UCHAR Bit = 1 << ((RecordOffset / IndexBlockSize) & 7);
+                        ULONG Byte = (RecordOffset / IndexBlockSize) >> 3;
+                        if ((BitmapData[Byte] & Bit))
+                            break;
+                        RecordOffset += IndexBlockSize;
+                    }
+
+                    if (RecordOffset >= IndexAllocationSize)
+                    {
                         break;
+                    }
+
+                    NtfsReadAttribute(Volume, IndexAllocationCtx, RecordOffset, IndexRecord, IndexBlockSize);
+
+                    if (!NtfsFixupRecord(Volume, (PNTFS_RECORD)IndexRecord))
+                    {
+                        break;
+                    }
+
+                    /* FIXME */
+                    IndexEntry = (PNTFS_INDEX_ENTRY)(IndexRecord + 0x18 + *(USHORT *)(IndexRecord + 0x18));
+                    IndexEntryEnd = (PNTFS_INDEX_ENTRY)(IndexRecord + IndexBlockSize);
+
+                    while (IndexEntry < IndexEntryEnd &&
+                           !(IndexEntry->Flags & NTFS_INDEX_ENTRY_END))
+                    {
+                        if (NtfsCompareFileName(FileName, IndexEntry))
+                        {
+                            TRACE("File found\n");
+                            *OutMFTIndex = (IndexEntry->Data.Directory.IndexedFile & NTFS_MFT_MASK);
+                            FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
+                            FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
+                            FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
+                            NtfsReleaseAttributeContext(IndexAllocationCtx);
+                            return TRUE;
+                        }
+                        IndexEntry = (PNTFS_INDEX_ENTRY)((PCHAR)IndexEntry + IndexEntry->Length);
+                    }
+
                     RecordOffset += IndexBlockSize;
                 }
 
-                if (RecordOffset >= IndexAllocationSize)
-                {
-                    break;
-                }
-
-                NtfsReadAttribute(Volume, IndexAllocationCtx, RecordOffset, IndexRecord, IndexBlockSize);
-
-                if (!NtfsFixupRecord(Volume, (PNTFS_RECORD)IndexRecord))
-                {
-                    break;
-                }
-
-                /* FIXME */
-                IndexEntry = (PNTFS_INDEX_ENTRY)(IndexRecord + 0x18 + *(USHORT *)(IndexRecord + 0x18));
-                IndexEntryEnd = (PNTFS_INDEX_ENTRY)(IndexRecord + IndexBlockSize);
-
-                while (IndexEntry < IndexEntryEnd &&
-                       !(IndexEntry->Flags & NTFS_INDEX_ENTRY_END))
-                {
-                    if (NtfsCompareFileName(FileName, IndexEntry))
-                    {
-                        TRACE("File found\n");
-                        *OutMFTIndex = (IndexEntry->Data.Directory.IndexedFile & NTFS_MFT_MASK);
-                        FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
-                        FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
-                        FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
-                        NtfsReleaseAttributeContext(IndexAllocationCtx);
-                        return TRUE;
-                    }
-                    IndexEntry = (PNTFS_INDEX_ENTRY)((PCHAR)IndexEntry + IndexEntry->Length);
-                }
-
-                RecordOffset += IndexBlockSize;
+                NtfsReleaseAttributeContext(IndexAllocationCtx);
             }
-
-            NtfsReleaseAttributeContext(IndexAllocationCtx);
             FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
         }
 
@@ -835,7 +897,7 @@ static BOOLEAN NtfsLookupFile(PNTFS_VOLUME_INFO Volume, PCSTR FileName, PNTFS_MF
         return FALSE;
     }
 
-    *DataContext = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_DATA, L"");
+    *DataContext = NtfsFindAttribute(Volume, MftRecord, NTFS_ATTR_TYPE_DATA, L"", 0);
     if (*DataContext == NULL)
     {
         TRACE("NtfsLookupFile: Can't find data attribute\n");
@@ -1082,7 +1144,7 @@ const DEVVTBL* NtfsMount(ULONG DeviceId)
     // Search DATA attribute
     //
     TRACE("Searching for DATA attribute...\n");
-    Volume->MFTContext = NtfsFindAttribute(Volume, Volume->MasterFileTable, NTFS_ATTR_TYPE_DATA, L"");
+    Volume->MFTContext = NtfsFindAttribute(Volume, Volume->MasterFileTable, NTFS_ATTR_TYPE_DATA, L"", 0);
     if (!Volume->MFTContext)
     {
         FileSystemError("Can't find data attribute for Master File Table.");
