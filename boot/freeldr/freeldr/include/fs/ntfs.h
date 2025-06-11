@@ -227,14 +227,20 @@ typedef struct
 } NTFS_INDEX_ENTRY, *PNTFS_INDEX_ENTRY;
 #include <poppack.h>
 
+typedef struct _NTFS_RUN_LIST
+{
+    ULONG OffsetInDataRun;
+    ULONG SizeInDataRun;
+    LONGLONG LCN, LCNInBytes;
+    ULONGLONG Length, LengthInBytes;
+    struct _NTFS_RUN_LIST *Next;
+    struct _NTFS_RUN_LIST *Prev;
+} NTFS_RUN_LIST, *PNTFS_RUN_LIST;
+
 typedef struct
 {
-    PUCHAR            CacheRun;
-    ULONGLONG            CacheRunOffset;
-    LONGLONG            CacheRunStartLCN;
-    ULONGLONG            CacheRunLength;
-    LONGLONG            CacheRunLastLCN;
-    ULONGLONG            CacheRunCurrentOffset;
+    PNTFS_RUN_LIST      CacheRunList;
+    ULONGLONG           CacheRunListFileSize;
     NTFS_ATTR_RECORD    Record;
 } NTFS_ATTR_CONTEXT, *PNTFS_ATTR_CONTEXT;
 
