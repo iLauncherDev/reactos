@@ -30,6 +30,8 @@ CCHAR FrLdrBootPath[MAX_PATH] = "";
 
 /* FUNCTIONS ******************************************************************/
 
+VOID RunLoader(VOID);
+
 static
 BOOLEAN
 LoadRosload(
@@ -68,6 +70,9 @@ static
 ULONG
 LaunchSecondStageLoader(VOID)
 {
+    RunLoader();
+    return ESUCCESS;
+
     PLDR_DATA_TABLE_ENTRY RosloadDTE;
     PVOID ImageBase;
     LONG (*EntryPoint)(VOID);
