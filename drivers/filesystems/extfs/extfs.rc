@@ -1,0 +1,44 @@
+#include <windows.h>
+
+#define STRINGIFY(x) #x
+#define TOSTR(x) STRINGIFY(x)
+
+#define EXTFS_VERSION_ARG @PRODUCT_VERSION_MAJOR@,@PRODUCT_VERSION_MINOR@,@PRODUCT_VERSION_PATCH@,0
+#define EXTFS_VERSION_STR TOSTR(@PRODUCT_VERSION_MAJOR@) "." TOSTR(@PRODUCT_VERSION_MINOR@) "." TOSTR(@PRODUCT_VERSION_PATCH@) "." TOSTR(0)
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     EXTFS_VERSION_ARG
+PRODUCTVERSION  EXTFS_VERSION_ARG
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+
+#ifdef _DEBUG
+FILEFLAGS 0x1L
+#else
+FILEFLAGS 0x0L
+#endif
+
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+
+        BEGIN
+            VALUE "FileDescription", "Linux Extended File System Driver"
+            VALUE "InternalName", "extfs"
+            VALUE "OriginalFilename", "extfs.sys"
+            VALUE "CompanyName", "iLauncherDev"
+            VALUE "ProductName", "ExtFS Driver"
+            VALUE "ProductVersion", EXTFS_VERSION_STR
+            VALUE "FileVersion", EXTFS_VERSION_STR
+        END
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
