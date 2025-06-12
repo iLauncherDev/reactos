@@ -1,0 +1,73 @@
+#include "extfs.h"
+
+BOOLEAN
+NTAPI
+ExtfsFastIoCheckIfPossible(
+    PFILE_OBJECT FileObject,
+    PLARGE_INTEGER FileOffset,
+    ULONG Length,
+    BOOLEAN Wait,
+    ULONG LockKey,
+    BOOLEAN CheckForReadOperation,
+    PIO_STATUS_BLOCK IoStatus,
+    PDEVICE_OBJECT DeviceObject)
+{
+    DPRINT1("ExtfsFastIoCheckIfPossible\n");
+    UNREFERENCED_PARAMETER(FileObject);
+    UNREFERENCED_PARAMETER(FileOffset);
+    UNREFERENCED_PARAMETER(Length);
+    UNREFERENCED_PARAMETER(Wait);
+    UNREFERENCED_PARAMETER(LockKey);
+    UNREFERENCED_PARAMETER(CheckForReadOperation);
+    UNREFERENCED_PARAMETER(IoStatus);
+    UNREFERENCED_PARAMETER(DeviceObject);
+    return FALSE;
+}
+
+BOOLEAN
+NTAPI
+ExtfsFastIoRead(
+    PFILE_OBJECT FileObject,
+    PLARGE_INTEGER FileOffset,
+    ULONG Length,
+    BOOLEAN Wait,
+    ULONG LockKey,
+    PVOID Buffer,
+    PIO_STATUS_BLOCK IoStatus,
+    PDEVICE_OBJECT DeviceObject)
+{
+    DPRINT1("ExtfsFastIoRead\n");
+    DBG_UNREFERENCED_PARAMETER(FileObject);
+    DBG_UNREFERENCED_PARAMETER(FileOffset);
+    DBG_UNREFERENCED_PARAMETER(Length);
+    DBG_UNREFERENCED_PARAMETER(Wait);
+    DBG_UNREFERENCED_PARAMETER(LockKey);
+    DBG_UNREFERENCED_PARAMETER(Buffer);
+    DBG_UNREFERENCED_PARAMETER(IoStatus);
+    DBG_UNREFERENCED_PARAMETER(DeviceObject);
+    return FALSE;
+}
+
+BOOLEAN
+NTAPI
+ExtfsFastIoWrite(
+    PFILE_OBJECT FileObject,
+    PLARGE_INTEGER FileOffset,
+    ULONG Length,
+    BOOLEAN Wait,
+    ULONG LockKey,
+    PVOID Buffer,
+    PIO_STATUS_BLOCK IoStatus,
+    PDEVICE_OBJECT DeviceObject)
+{
+    DPRINT1("ExtfsFastIoWrite\n");
+    DBG_UNREFERENCED_PARAMETER(FileObject);
+    DBG_UNREFERENCED_PARAMETER(FileOffset);
+    DBG_UNREFERENCED_PARAMETER(Length);
+    DBG_UNREFERENCED_PARAMETER(Wait);
+    DBG_UNREFERENCED_PARAMETER(LockKey);
+    DBG_UNREFERENCED_PARAMETER(Buffer);
+    DBG_UNREFERENCED_PARAMETER(IoStatus);
+    DBG_UNREFERENCED_PARAMETER(DeviceObject);
+    return FALSE;
+}

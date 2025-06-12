@@ -1,0 +1,7 @@
+; ext2/3/4 Filesystem driver
+[AddReg]
+HKLM,"SYSTEM\CurrentControlSet\Services\Extfs","ErrorControl",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\Extfs","Group",0x00000000,"Boot File System"
+HKLM,"SYSTEM\CurrentControlSet\Services\Extfs","ImagePath",0x00020000,"system32\drivers\extfs.sys"
+HKLM,"SYSTEM\CurrentControlSet\Services\Extfs","Start",0x00010001,0x00000003
+HKLM,"SYSTEM\CurrentControlSet\Services\Extfs","Type",0x00010001,0x00000002
