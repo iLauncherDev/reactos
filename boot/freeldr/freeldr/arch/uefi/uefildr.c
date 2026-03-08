@@ -64,6 +64,8 @@ EfiEntry(
         goto Quit;
     }
 
+    InitializeGenericDiskList();
+
     if (!MachInitializeBootDevices())
     {
         UiMessageBoxCritical("Error when detecting hardware.");

@@ -694,6 +694,33 @@ FsRegisterDevice(
     return TRUE;
 }
 
+VOID
+FsUnregisterDevice(
+    _In_ PCSTR DeviceName)
+{
+    PLIST_ENTRY End = &DeviceListHead;
+    PLIST_ENTRY Current = End->Flink;
+
+    TRACE("FsUnregisterDevice(%s)\n", DeviceName);
+
+    while (Current != End)
+    {
+        PLIST_ENTRY Next = Current->Flink;
+        DEVICE *Device = CONTAINING_RECORD(Current, DEVICE, ListEntry);
+
+        if (!strcmp(Device->DeviceName, DeviceName))
+        {
+            TRACE("Device removed! (%s)\n", Device->DeviceName);
+
+            RemoveEntryList(&Device->ListEntry);
+            FrLdrTempFree(Device, TAG_DEVICE);
+            return;
+        }
+
+        Current = Next;
+    }
+}
+
 PCWSTR FsGetServiceName(ULONG FileId)
 {
     if (!IS_VALID_FILEID(FileId))

@@ -13,8 +13,6 @@
 #include <debug.h>
 DBG_DEFAULT_CHANNEL(DISK);
 
-#define FIRST_PARTITION 1
-
 /* DISK IO ERROR SUPPORT *****************************************************/
 
 static LONG lReportError = 0; // >= 0: display errors; < 0: hide errors.
@@ -77,7 +75,6 @@ DiskInitialize(
     ULONG Checksum, Signature;
     BOOLEAN ValidPartitionTable;
     BOOLEAN IsCdRom;
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
     CHAR ArcName[MAX_PATH];
     NTSTATUS NtStatus;
 
@@ -152,21 +149,5 @@ DiskInitialize(
     /* Detect disk partition type */
     DiskDetectPartitionType(DriveNumber);
 
-    /* Add partitions */
-    i = FIRST_PARTITION;
-    while (DiskGetPartitionEntry(DriveNumber, i, &PartitionTableEntry))
-    {
-        if (PartitionTableEntry.SystemIndicator != PARTITION_ENTRY_UNUSED)
-        {
-            NtStatus = RtlStringCbPrintfA(ArcName, sizeof(ArcName),
-                                          "%spartition(%lu)", DeviceName, i);
-            if (!NT_SUCCESS(NtStatus))
-                return ENAMETOOLONG;
-            if (!FsRegisterDevice(ArcName, FuncTable))
-                return ENOMEM;
-        }
-        i++;
-    }
-
-    return ESUCCESS;
+    return DiskConfigureGenericDisk(ArcName);
 }

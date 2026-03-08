@@ -20,6 +20,7 @@
 #pragma once
 
 #include <reactos/rosioctl.h>
+#include <partition_table/mbr.h>
 
 /* FreeLoader-specific disk geometry structure */
 typedef struct _GEOMETRY
@@ -31,39 +32,39 @@ typedef struct _GEOMETRY
     ULONGLONG Sectors;     ///< Total number of disk sectors/LBA blocks
 } GEOMETRY, *PGEOMETRY;
 
-#include <pshpack1.h>
-
-/*
- * Define the structure of a partition table entry
- */
-typedef struct _PARTITION_TABLE_ENTRY
+typedef struct GENERIC_DISK
 {
-    UCHAR   BootIndicator;              // 0x00 - non-bootable partition,
-                                        // 0x80 - bootable partition (one partition only)
-    UCHAR   StartHead;                  // Beginning head number
-    UCHAR   StartSector;                // Beginning sector (2 high bits of cylinder #)
-    UCHAR   StartCylinder;              // Beginning cylinder# (low order bits of cylinder #)
-    UCHAR   SystemIndicator;            // System indicator
-    UCHAR   EndHead;                    // Ending head number
-    UCHAR   EndSector;                  // Ending sector (2 high bits of cylinder #)
-    UCHAR   EndCylinder;                // Ending cylinder# (low order bits of cylinder #)
-    ULONG   SectorCountBeforePartition; // Number of sectors preceding the partition
-    ULONG   PartitionSectorCount;       // Number of sectors in the partition
-} PARTITION_TABLE_ENTRY, *PPARTITION_TABLE_ENTRY;
+    LIST_ENTRY ListEntry;
 
-/*
- * Define the structure of the master boot record
- */
-typedef struct _MASTER_BOOT_RECORD
+    GEOMETRY DiskGeometry;
+    FILEINFORMATION FileInformation;
+
+    ULONG FileId;
+    CHAR ArcPath[MAX_PATH];
+
+    BOOLEAN IsCdrom;
+
+    ULONG DriveNumber;
+    PARTITION_STYLE PartitionStyle;
+
+    LIST_ENTRY PartitionList;
+} GENERIC_DISK, *PGENERIC_DISK;
+
+typedef struct GENERIC_DISK_PARTITION
 {
-    UCHAR   MasterBootRecordCodeAndData[0x1b8]; /* 0x000 */
-    ULONG   Signature;                          /* 0x1B8 */
-    USHORT  Reserved;                           /* 0x1BC */
-    PARTITION_TABLE_ENTRY   PartitionTable[4];  /* 0x1BE */
-    USHORT  MasterBootRecordMagic;              /* 0x1FE */
-} MASTER_BOOT_RECORD, *PMASTER_BOOT_RECORD;
+    LIST_ENTRY ListEntry;
 
-#include <poppack.h>
+    CHAR ArcPath[MAX_PATH];
+
+    PGENERIC_DISK GenericDisk;
+
+    ULONG DrivePartition;
+
+    BOOLEAN IsBootable;
+    LARGE_INTEGER PartitionStart, PartitionEnd;
+
+    LARGE_INTEGER CurrentFileOffset;
+} GENERIC_DISK_PARTITION, *PGENERIC_DISK_PARTITION;
 
 /*
  * Partition type defines (of PSDK)
@@ -152,21 +153,36 @@ DiskInitialize(
  * Fixed Disk Partition Management Functions (partition.c)
  */
 
+ARC_STATUS GenericDiskReadRawData(PGENERIC_DISK GenericDisk, PVOID Buffer, LARGE_INTEGER Offset, ULONG Length, PULONG ByteCount);
+ARC_STATUS 
+GenericDiskAddDiskPartition(
+    PGENERIC_DISK GenericDisk, ULONG DrivePartition,
+    LARGE_INTEGER StartOffset, LARGE_INTEGER EndOffset,
+    PGENERIC_DISK_PARTITION *OutDiskPartition);
+
+VOID InitializeGenericDiskList();
+ARC_STATUS DiskConfigureGenericDisk(PCHAR ArcPath);
+
+PGENERIC_DISK DiskFindGenericDisk(UCHAR DriveNumber);
+PGENERIC_DISK_PARTITION DiskFindGenericPartition(PGENERIC_DISK GenericDisk, ULONG DrivePartition);
+
+PARTITION_STYLE DiskGetDrivePartitionStyle(IN UCHAR DriveNumber);
+
 VOID
 DiskDetectPartitionType(
     IN UCHAR DriveNumber);
 
 BOOLEAN
-DiskGetBootPartitionEntry(
+DiskGetBootPartitionNumber(
     IN UCHAR DriveNumber,
-    OUT PPARTITION_TABLE_ENTRY PartitionTableEntry,
     OUT PULONG BootPartition);
 
 BOOLEAN
-DiskGetPartitionEntry(
+DiskGetBootPartitionNumberBySize(
     IN UCHAR DriveNumber,
-    IN ULONG PartitionNumber,
-    OUT PPARTITION_TABLE_ENTRY PartitionTableEntry);
+    OUT PULONG BootPartition,
+    IN LARGE_INTEGER PartitionSize,
+    IN ULONGLONG ToleranceSize);
 
 
 /*
