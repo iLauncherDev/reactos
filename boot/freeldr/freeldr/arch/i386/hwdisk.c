@@ -92,7 +92,6 @@ DiskOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
     ULONG DrivePartition, SectorSize;
     ULONGLONG SectorOffset = 0;
     ULONGLONG SectorCount = 0;
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
 
     if (DiskReadBufferSize == 0)
     {
@@ -117,29 +116,18 @@ DiskOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
         SectorSize = 512;
     }
 
-    if (DrivePartition != 0xff && DrivePartition != 0)
+    GEOMETRY Geometry;
+    if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
+        return EINVAL;
+
+    if (SectorSize != Geometry.BytesPerSector)
     {
-        if (!DiskGetPartitionEntry(DriveNumber, DrivePartition, &PartitionTableEntry))
-            return EINVAL;
-
-        SectorOffset = PartitionTableEntry.SectorCountBeforePartition;
-        SectorCount = PartitionTableEntry.PartitionSectorCount;
+        ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
+            SectorSize, Geometry.BytesPerSector);
     }
-    else
-    {
-        GEOMETRY Geometry;
-        if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
-            return EINVAL;
 
-        if (SectorSize != Geometry.BytesPerSector)
-        {
-            ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
-                SectorSize, Geometry.BytesPerSector);
-        }
-
-        SectorOffset = 0;
-        SectorCount = Geometry.Sectors;
-    }
+    SectorOffset = 0;
+    SectorCount = Geometry.Sectors;
 
     Context = FrLdrTempAlloc(sizeof(DISKCONTEXT), TAG_HW_DISK_CONTEXT);
     if (!Context)
@@ -266,7 +254,7 @@ GetHarddiskInformation(UCHAR DriveNumber)
     ULONG Signature;
     BOOLEAN ValidPartitionTable;
     CHAR ArcName[MAX_PATH];
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
+    //PARTITION_TABLE_ENTRY PartitionTableEntry;
     PCHAR Identifier = PcDiskIdentifier[DriveNumber - FIRST_BIOS_DISK];
 
     /* Detect disk partition type */
@@ -308,15 +296,7 @@ GetHarddiskInformation(UCHAR DriveNumber)
     /* Add partitions */
     i = FIRST_PARTITION;
     DiskReportError(FALSE);
-    while (DiskGetPartitionEntry(DriveNumber, i, &PartitionTableEntry))
-    {
-        if (PartitionTableEntry.SystemIndicator != PARTITION_ENTRY_UNUSED)
-        {
-            sprintf(ArcName, "multi(0)disk(0)rdisk(%u)partition(%lu)", DriveNumber - FIRST_BIOS_DISK, i);
-            FsRegisterDevice(ArcName, &DiskVtbl);
-        }
-        i++;
-    }
+    DiskConfigureGenericDisk(ArcName);
     DiskReportError(TRUE);
 
     /* Convert checksum and signature to identifier string */
@@ -435,10 +415,9 @@ DiskGetBootPath(BOOLEAN IsPxe)
     else
     {
         ULONG BootPartition;
-        PARTITION_TABLE_ENTRY PartitionEntry;
 
         /* This is a hard disk */
-        if (!DiskGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
+        if (!DiskGetBootPartitionNumber(FrldrBootDrive, &BootPartition))
         {
             ERR("Failed to get boot partition entry\n");
             return FALSE;

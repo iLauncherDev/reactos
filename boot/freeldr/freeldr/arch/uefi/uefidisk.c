@@ -224,6 +224,7 @@ DiskReportError(BOOLEAN bShowError)
 
 /* GPT Support Functions ******************************************************/
 
+#if 0
 static
 BOOLEAN
 UefiReadGptHeader(
@@ -589,6 +590,7 @@ UefiGetBootPartitionEntry(
 
     return FALSE;
 }
+#endif
 
 static
 ARC_STATUS
@@ -631,7 +633,6 @@ UefiDiskOpen(CHAR *Path, OPENMODE OpenMode, ULONG *FileId)
     ULONGLONG SectorOffset = 0;
     ULONGLONG SectorCount = 0;
     ULONG ArcDriveIndex;
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
     EFI_BLOCK_IO* BlockIo;
     EFI_STATUS Status;
 
@@ -677,29 +678,18 @@ UefiDiskOpen(CHAR *Path, OPENMODE OpenMode, ULONG *FileId)
 
     SectorSize = BlockIo->Media->BlockSize;
 
-    if (DrivePartition != 0xff && DrivePartition != 0)
+    GEOMETRY Geometry;
+    if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
+        return EINVAL;
+
+    if (SectorSize != Geometry.BytesPerSector)
     {
-        if (!DiskGetPartitionEntry(DriveNumber, DrivePartition, &PartitionTableEntry))
-            return EINVAL;
-
-        SectorOffset = PartitionTableEntry.SectorCountBeforePartition;
-        SectorCount = PartitionTableEntry.PartitionSectorCount;
+        ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
+            SectorSize, Geometry.BytesPerSector);
     }
-    else
-    {
-        GEOMETRY Geometry;
-        if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
-            return EINVAL;
 
-        if (SectorSize != Geometry.BytesPerSector)
-        {
-            ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
-                SectorSize, Geometry.BytesPerSector);
-        }
-
-        SectorOffset = 0;
-        SectorCount = Geometry.Sectors;
-    }
+    SectorOffset = 0;
+    SectorCount = Geometry.Sectors;
 
     Context = FrLdrTempAlloc(sizeof(DISKCONTEXT), TAG_HW_DISK_CONTEXT);
     if (!Context)
@@ -863,7 +853,6 @@ GetHarddiskInformation(UCHAR DriveNumber)
     ULONG Signature;
     BOOLEAN ValidPartitionTable;
     CHAR ArcName[MAX_PATH];
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
     ULONG ArcDriveIndex;
     PCHAR Identifier;
 
@@ -912,15 +901,7 @@ GetHarddiskInformation(UCHAR DriveNumber)
     /* Add partitions */
     i = FIRST_PARTITION;
     DiskReportError(FALSE);
-    while (DiskGetPartitionEntry(DriveNumber, i, &PartitionTableEntry))
-    {
-        if (PartitionTableEntry.SystemIndicator != PARTITION_ENTRY_UNUSED)
-        {
-            sprintf(ArcName, "multi(0)disk(0)rdisk(%u)partition(%lu)", ArcDriveIndex, i);
-            FsRegisterDevice(ArcName, &UefiDiskVtbl);
-        }
-        i++;
-    }
+    DiskConfigureGenericDisk(ArcName);
     DiskReportError(TRUE);
 
     if (ArcDriveIndex < PcBiosDiskCount && InternalUefiDisk != NULL)
@@ -1269,27 +1250,14 @@ UefiSetBootpath(VOID)
     else
     {
         ULONG BootPartition;
-        PARTITION_TABLE_ENTRY PartitionEntry;
 
         /* This is a hard disk */
         /* If boot handle is a logical partition, we need to determine which partition number */
-        if (BootBlockIo->Media->LogicalPartition)
-        {
-            /* For logical partitions, we need to find the partition number */
-            /* This is tricky - we'll use partition 1 as default for now */
-            /* TODO: Properly determine partition number from boot handle */
-            BootPartition = FIRST_PARTITION;
-            TRACE("Boot handle is logical partition, using partition %lu\n", BootPartition);
-        }
-        else
-        {
-            /* Boot handle is the root device itself */
-            if (!UefiGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
-            {
-                ERR("Failed to get boot partition entry\n");
-                return FALSE;
-            }
-        }
+        ULONGLONG SectorSize = BootBlockIo->Media->BlockSize;
+        LARGE_INTEGER PartitionSize;
+
+        PartitionSize.QuadPart = (BootBlockIo->Media->LastBlock + 1) * SectorSize;
+        DiskGetBootPartitionNumberBySize(FrldrBootDrive, &BootPartition, PartitionSize, SectorSize);
 
         RtlStringCbPrintfA(FrLdrBootPath, sizeof(FrLdrBootPath),
                            "multi(0)disk(0)rdisk(%u)partition(%lu)",

@@ -30,7 +30,11 @@ list(APPEND FREELDR_ARC_SOURCE
     arch/arcemul.c
     arch/archwsup.c
     disk/disk.c
+    disk/generic_disk.c
     disk/partition.c
+    disk/table/brfr.c
+    disk/table/gpt.c
+    disk/table/mbr.c
     disk/ramdisk.c)
     # disk/scsiport.c
     # lib/fs/pxe.c

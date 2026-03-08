@@ -129,6 +129,8 @@ VOID __cdecl BootMain(IN PCCH CmdLine)
         goto Quit;
     }
 
+    InitializeGenericDiskList();
+
     if (!MachInitializeBootDevices())
     {
         UiMessageBoxCritical("Error when detecting hardware.");
