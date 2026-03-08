@@ -65,6 +65,9 @@ BOOLEAN
 FsRegisterDevice(
     _In_ PCSTR DeviceName,
     _In_ const DEVVTBL* FuncTable);
+VOID
+FsUnregisterDevice(
+    _In_ PCSTR DeviceName);
 
 PCWSTR FsGetServiceName(ULONG FileId);
 VOID  FsSetDeviceSpecific(ULONG FileId, PVOID Specific);

@@ -89,7 +89,6 @@ DiskOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
     ULONG DrivePartition, SectorSize;
     ULONGLONG SectorOffset = 0;
     ULONGLONG SectorCount = 0;
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
 
     if (DiskReadBufferSize == 0)
     {
@@ -114,29 +113,18 @@ DiskOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
         SectorSize = 512;
     }
 
-    if (DrivePartition != 0xff && DrivePartition != 0)
+    GEOMETRY Geometry;
+    if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
+        return EINVAL;
+
+    if (SectorSize != Geometry.BytesPerSector)
     {
-        if (!DiskGetPartitionEntry(DriveNumber, DrivePartition, &PartitionTableEntry))
-            return EINVAL;
-
-        SectorOffset = PartitionTableEntry.SectorCountBeforePartition;
-        SectorCount = PartitionTableEntry.PartitionSectorCount;
+        ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
+            SectorSize, Geometry.BytesPerSector);
     }
-    else
-    {
-        GEOMETRY Geometry;
-        if (!MachDiskGetDriveGeometry(DriveNumber, &Geometry))
-            return EINVAL;
 
-        if (SectorSize != Geometry.BytesPerSector)
-        {
-            ERR("SectorSize (%lu) != Geometry.BytesPerSector (%lu), expect problems!\n",
-                SectorSize, Geometry.BytesPerSector);
-        }
-
-        SectorOffset = 0;
-        SectorCount = Geometry.Sectors;
-    }
+    SectorOffset = 0;
+    SectorCount = Geometry.Sectors;
 
     Context = FrLdrTempAlloc(sizeof(DISKCONTEXT), TAG_HW_DISK_CONTEXT);
     if (!Context)
@@ -407,12 +395,11 @@ DiskGetBootPath(
     else
     {
         ULONG BootPartition;
-        PARTITION_TABLE_ENTRY PartitionEntry;
 
         /* This is a hard disk, find the boot partition */
-        if (!DiskGetBootPartitionEntry(FrldrBootDrive, &PartitionEntry, &BootPartition))
+        if (!DiskGetBootPartitionNumber(FrldrBootDrive, &BootPartition))
         {
-            ERR("Failed to get boot partition entry\n");
+            ERR("Failed to get boot partition number\n");
             return FALSE;
         }
         FrldrBootPartition = BootPartition;
