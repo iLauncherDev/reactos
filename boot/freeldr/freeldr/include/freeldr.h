@@ -87,6 +87,9 @@
 #include <settings.h>
 #include <ver.h>
 
+/* Field translator for structs comming from disk! */
+#include <field_translator.h>
+
 /* NTOS loader */
 #include <include/ntldr/winldr.h>
 #include <conversion.h> // More-or-less related to MM also...

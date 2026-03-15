@@ -39,6 +39,7 @@ list(APPEND FREELDR_BOOTLIB_SOURCE
     lib/arcsupp.c
     lib/debug.c
     lib/peloader.c
+    lib/field_translator.c
     lib/cache/blocklist.c
     lib/cache/cache.c
     lib/comm/rs232.c
