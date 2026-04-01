@@ -176,6 +176,16 @@ int __cdecl iswctype(wint_t wc, wctype_t wctypeFlags)
 #pragma function(log10)
 #endif
 
+#if defined(_M_ARM)
+
+#undef KeGetCurrentIrql
+KIRQL KeGetCurrentIrql(VOID)
+{
+    return PASSIVE_LEVEL;
+}
+
+#endif
+
 // Stubs to avoid pulling in data from CRT
 double pow(double x, double y)
 {

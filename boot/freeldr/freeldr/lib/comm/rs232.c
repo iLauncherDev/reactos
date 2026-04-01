@@ -47,7 +47,7 @@ static const ULONG BaseArray[] = {0, 0x800003F8};
 #elif defined(_M_MIPS)
 static const ULONG BaseArray[] = {0, 0x80006000, 0x80007000};
 #elif defined(_M_ARM)
-static const ULONG BaseArray[] = {0, 0xF1012000};
+static const ULONG BaseArray[] = {0, 0xF1012000, 0x09000000};
 #else
 #error Unknown architecture
 #endif

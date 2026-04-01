@@ -15,6 +15,9 @@
 #include "../../../../../armllb/inc/osloader.h"
 #include "../../../../../armllb/inc/machtype.h"
 
+#define TAG_HW_RESOURCE_LIST    'lRwH'
+#define TAG_HW_DISK_CONTEXT     'cDwH'
+
 #define FREELDR_BASE       0x0001F000
 #define FREELDR_PE_BASE    0x0001F000
 #define MAX_FREELDR_PE_SIZE 0xFFFFFF
@@ -30,9 +33,24 @@ extern ULONG SecondLevelIcacheSize;
 extern ULONG SecondLevelIcacheFillSize;
 
 extern ULONG gDiskReadBuffer, gFileSysBuffer;
-#define DiskReadBuffer ((PVOID)gDiskReadBuffer)
+//#define DiskReadBuffer ((PVOID)gDiskReadBuffer)
 
 #define DriveMapGetBiosDriveNumber(DeviceName) 0
+
+/*
+ * Disk Variables and Functions
+ */
+/* Platform-specific boot drive and partition numbers */
+extern UCHAR FrldrBootDrive;
+extern ULONG FrldrBootPartition;
+
+/* FIXME: Should be moved to NDK, and respective ACPI header files */
+typedef struct _ACPI_BIOS_DATA
+{
+    PHYSICAL_ADDRESS RSDTAddress;
+    ULONGLONG Count;
+    BIOS_MEMORY_MAP MemoryMap[1]; /* Count of BIOS memory map entries */
+} ACPI_BIOS_DATA, *PACPI_BIOS_DATA;
 
 DECLSPEC_NORETURN
 FORCEINLINE VOID Reboot(VOID)

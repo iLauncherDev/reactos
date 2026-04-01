@@ -34,6 +34,8 @@ elseif(ARCH STREQUAL "amd64")
     list(APPEND UEFILDR_COMMON_ASM_SOURCE
         arch/uefi/amd64/uefiasm.S)
 elseif(ARCH STREQUAL "arm")
+    list(APPEND UEFILDR_COMMON_ASM_SOURCE
+        arch/uefi/arm/uefiasm.S)
     list(APPEND UEFILDR_ARC_SOURCE
         arch/arm/macharm.c
         arch/arm/debug.c)
